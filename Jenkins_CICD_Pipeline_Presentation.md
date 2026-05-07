@@ -43,24 +43,24 @@ Date: May 8, 2026
 ## SLIDE 3: Complete Architecture
 
 ```
-┌─────────┐     ┌────────┐     ┌───────┐     ┌────────┐
-│ GitHub  │ --> │ Jenkins│ --> │ Maven │ --> │ Docker │
-└────┬────┘     └────────┘     └───────┘     └───┬────┘
+┌──────────────┐     ┌──────────┐     ┌────────┐     ┌────────┐
+│   GitHub  │ --> │ Jenkins│ --> │ Maven │ --> │ Docker │
+└──────────┬──┘     └──────────┘     └────────┘     └──────┬──┘
      │ Webhook                                    │ Build
      │ Trigger                                    │ Image
      │                                            ▼
-     │                                      ┌──────────────┐
+     │                                      ┌─────────────────┐
      │                                      │  Docker Hub  │
      │                                      │ (Registry)   │
-     │                                      └──────┬───────┘
+     │                                      └────────┬──────┘
      │                                             │ Push
      │                                             ▼
-     │                                      ┌──────────────┐
+     │                                      ┌─────────────────┐
      │                                      │ Kubernetes   │
      │                                      │ (Deploy)     │
-     │                                      └──────────────┘
+     │                                      └─────────────────┘
      │
-     └──────── Continuous Integration Pipeline ────────┘
+     └────────────── Continuous Integration Pipeline ────────────────
 ```
 
 ### Components
@@ -116,15 +116,15 @@ Triggers: Push events, Pull requests
 ### Workflow
 ```
 Developer commits code
-     ↓
+     ▼
 GitHub receives push
-     ↓
+     ▼
 GitHub sends webhook to Jenkins
-     ↓
+     ▼
 Jenkins clones repository
-     ↓
+     ▼
 Jenkins triggers pipeline
-     ↓
+     ▼
 Pipeline executes automatically
 ```
 
@@ -527,12 +527,12 @@ docker logout
 ### ⏱️ End-to-End Process
 
 ```
-┌─ 1. Checkout Code (5 sec)
+├─ 1. Checkout Code (5 sec)
 │
 ├─ 2. Build with Maven (2-3 min)
-│   ├─ Compile
-│   ├─ Unit Tests (1-2 min)
-│   └─ Code Quality (30-60 sec)
+│  ├─ Compile
+│  ├─ Unit Tests (1-2 min)
+│  └─ Code Quality (30-60 sec)
 │
 ├─ 4. Docker Build (1-2 min)
 │
@@ -548,10 +548,10 @@ TOTAL: 7-12 minutes
 ```
 
 ### Key Milestones
-- Code committed ➜ Pipeline starts (1 sec)
-- Build complete ➜ Tests run (3-4 min)
-- Image ready ➜ Pushed to registry (2 min)
-- Deployment ➜ Live in production (2-3 min)
+- Code committed ↦ Pipeline starts (1 sec)
+- Build complete ↦ Tests run (3-4 min)
+- Image ready ↦ Pushed to registry (2 min)
+- Deployment ↦ Live in production (2-3 min)
 
 **Parallelization Opportunity**:
 - Docker build & push can be parallel

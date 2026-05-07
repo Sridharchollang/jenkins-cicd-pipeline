@@ -1,0 +1,79 @@
+# Service for external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: your-app-service
+  namespace: default
+  labels:
+    app: your-app
+  annotations:
+    description: "Service for your-app deployment"
+spec:
+  type: LoadBalancer
+  # Use ClusterIP for internal-only access
+  # type: ClusterIP
+  selector:
+    app: your-app
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 8080
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+---
+# NetworkPolicy for security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: your-app-network-policy
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: your-app
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: default
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+---
+# ServiceMonitor for Prometheus (optional)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: your-app-monitor
+  namespace: default
+  labels:
+    app: your-app
+spec:
+  selector:
+    matchLabels:
+      app: your-app
+  endpoints:
+  - port: http
+    path: /actuator/prometheus
+    interval: 30s
