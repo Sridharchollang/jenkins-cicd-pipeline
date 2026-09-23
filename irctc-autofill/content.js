@@ -1,174 +1,224 @@
 (() => {
-  const norm = value => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const visible = node => {
-    if (!node || node.disabled) return false;
-    const rect = node.getBoundingClientRect();
-    const style = getComputedStyle(node);
-    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-  };
-  const visibleNodes = (root, selector) => [...(root || document).querySelectorAll(selector)].filter(visible);
-  const ownText = node => norm(node?.innerText || node?.textContent || "");
-  const labelText = node => norm(node?.innerText || node?.textContent || "");
+  const normalize = value => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
-  const getPassengerDialog = () => {
-    const candidates = visibleNodes(document, "[role='dialog'], [aria-modal='true'], .modal, .modal-dialog, [class*='modal'], [class*='dialog']")
-      .filter(node => ownText(node).includes("addpassenger"));
+  const visible = element => {
+    if (!element || element.disabled) return false;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+  };
+
+  const text = element => normalize(element?.innerText || element?.textContent || "");
+  const nodes = (root, selector) => [...(root || document).querySelectorAll(selector)].filter(visible);
+  const waitFor = async (test, attempts = 40, delay = 50) => {
+    for (let index = 0; index < attempts; index++) {
+      const result = test();
+      if (result) return result;
+      await wait(delay);
+    }
+    return null;
+  };
+
+  const dialog = () => {
+    const candidates = nodes(document, "[role='dialog'], [aria-modal='true'], .modal, .modal-dialog, [class*='modal'], [class*='dialog']")
+      .filter(element => text(element).includes("addpassenger"));
     return candidates.sort((a, b) => {
-      const ar = a.getBoundingClientRect();
-      const br = b.getBoundingClientRect();
-      return br.width * br.height - ar.width * ar.height;
+      const first = a.getBoundingClientRect();
+      const second = b.getBoundingClientRect();
+      return second.width * second.height - first.width * first.height;
     })[0] || document;
   };
 
-  const exactLabel = (root, names) => {
-    const wanted = names.map(norm);
-    return visibleNodes(root, "label, mat-label, legend, span, p, div")
-      .filter(node => wanted.includes(labelText(node)))
-      .sort((a, b) => a.getBoundingClientRect().width * a.getBoundingClientRect().height - b.getBoundingClientRect().width * b.getBoundingClientRect().height)[0];
+  const labelNode = (root, labels) => {
+    const wanted = labels.map(normalize);
+    return nodes(root, "label, mat-label, legend, span, p, div")
+      .filter(element => wanted.includes(text(element)))
+      .sort((a, b) => {
+        const first = a.getBoundingClientRect();
+        const second = b.getBoundingClientRect();
+        return first.width * first.height - second.width * second.height;
+      })[0] || null;
   };
 
-  const rowFor = (label, root) => {
+  const fieldRow = (label, root) => {
     if (!label) return null;
-    let row = label.parentElement;
-    for (let depth = 0; row && depth < 6; depth++, row = row.parentElement) {
-      const rect = row.getBoundingClientRect();
-      const text = ownText(row);
-      if (rect.width > 120 && rect.height < 180 && text.length < 220) return row;
+    let current = label.parentElement;
+    for (let depth = 0; current && depth < 7; depth++, current = current.parentElement) {
+      const rect = current.getBoundingClientRect();
+      const controls = current.querySelectorAll("input, textarea, select, button, [role='combobox'], [aria-haspopup='listbox'], [aria-expanded], [tabindex]");
+      if (rect.width > 120 && rect.height < 180 && controls.length) return current;
     }
     return label.parentElement;
   };
 
-  const inputFor = (root, names) => {
-    const label = exactLabel(root, names);
-    const row = rowFor(label, root);
-    const input = row && visibleNodes(row, "input, textarea").find(node => !names.map(norm).includes(norm(node.value)));
-    return { label, row, control: input };
+  const inputField = (root, labels) => {
+    const label = labelNode(root, labels);
+    const row = fieldRow(label, root);
+    const control = row && nodes(row, "input, textarea").find(element => !element.readOnly);
+    return { label, row, control };
   };
 
-  const interactiveFor = (root, names) => {
-    const label = exactLabel(root, names);
-    const row = rowFor(label, root);
+  const dropdownField = (root, labels) => {
+    const label = labelNode(root, labels);
+    const row = fieldRow(label, root);
     if (!row) return { label, row, control: null };
 
-    const controls = visibleNodes(row, "select, button, [role='combobox'], [aria-haspopup='listbox'], [aria-expanded], input, [tabindex], svg, i");
-    let control = controls.find(node => {
-      const value = norm(node.value || node.getAttribute("aria-label") || node.innerText || node.textContent || "");
-      return value === "select" || value === "india" || value === "lower" || value === "male" || value === "female" || value.includes("select");
-    });
-
-    if (!control) {
-      const descendants = visibleNodes(row, "div, span, button").filter(node => {
-        const style = getComputedStyle(node);
-        return style.cursor === "pointer" || node.getAttribute("role") === "button";
-      });
-      control = descendants.sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
-    }
-
-    if (!control) control = row;
-    const clickable = control.closest("button, [role='combobox'], [aria-haspopup='listbox'], [aria-expanded], [tabindex]") || control;
-    return { label, row, control: clickable };
+    const controls = nodes(row, "select, button, [role='combobox'], [aria-haspopup='listbox'], [aria-expanded], [tabindex]");
+    const control = controls.find(element => element !== label) || row;
+    return { label, row, control };
   };
 
-  const setInput = (control, value) => {
-    if (!control || value === undefined || value === null || value === "") return false;
-    const proto = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-    if (setter) setter.call(control, String(value)); else control.value = String(value);
-    ["input", "change", "blur"].forEach(type => control.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
+  const setInput = (element, value) => {
+    if (!element || value === undefined || value === null || value === "") return false;
+    const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+    if (setter) setter.call(element, String(value));
+    else element.value = String(value);
+    ["input", "change", "blur"].forEach(type => element.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
     return true;
   };
 
-  const optionNodes = () => visibleNodes(document, "[role='option'], [role='menuitem'], [role='listbox'] li, [role='listbox'] div, mat-option, .mat-option, .mat-mdc-option, .mdc-list-item, .cdk-overlay-pane li, .cdk-overlay-pane button, .dropdown-menu li, .dropdown-menu button, li").filter(node => {
-    const value = ownText(node);
-    return value && ![...node.children].some(child => ownText(child) === value);
-  });
-
-  const clickHuman = node => {
-    const target = node.closest("[role='option'], [role='menuitem'], mat-option, .mat-option, .mat-mdc-option, .mdc-list-item, li, button") || node;
-    target.scrollIntoView?.({ block: "nearest" });
-    const r = target.getBoundingClientRect();
-    const init = { bubbles: true, cancelable: true, composed: true, view: window, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
-    target.dispatchEvent(new MouseEvent("mousedown", init));
-    target.dispatchEvent(new MouseEvent("mouseup", init));
-    target.dispatchEvent(new MouseEvent("click", init));
-    target.click();
+  const dispatchClick = element => {
+    if (!element) return;
+    element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    const rect = element.getBoundingClientRect();
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2
+    };
+    if (typeof PointerEvent === "function") {
+      element.dispatchEvent(new PointerEvent("pointerdown", { ...init, pointerId: 1, pointerType: "mouse" }));
+    }
+    element.dispatchEvent(new MouseEvent("mousedown", init));
+    if (typeof PointerEvent === "function") {
+      element.dispatchEvent(new PointerEvent("pointerup", { ...init, pointerId: 1, pointerType: "mouse" }));
+    }
+    element.dispatchEvent(new MouseEvent("mouseup", init));
+    element.dispatchEvent(new MouseEvent("click", init));
+    element.click?.();
   };
 
-  const rowHasValue = (row, value) => {
-    const wanted = norm(value);
-    const text = ownText(row);
-    return text.includes(wanted) && !text.endsWith("select");
+  const optionCandidates = () => {
+    // IRCTC has used several implementations: Angular Material, ng-select,
+    // Bootstrap-like lists, and plain div option rows. Include all of them.
+    const selector = [
+      "[role='option']", "[role='menuitem']", "[role='listbox'] li", "[role='listbox'] div",
+      "mat-option", ".mat-option", ".mat-mdc-option", ".mdc-list-item", ".ng-option",
+      ".ng-option-label", ".dropdown-item", ".select-option", ".option", ".menu-item",
+      ".cdk-overlay-pane li", ".cdk-overlay-pane button", ".dropdown-menu li", ".dropdown-menu button",
+      "li[tabindex]", "li", "button"
+    ].join(",");
+    const specific = nodes(document, selector);
+    const generic = nodes(document, "div, span").filter(element => {
+      const value = text(element);
+      const className = String(element.className || "").toLowerCase();
+      return value && /(option|dropdown|menu|select|list|item)/.test(className);
+    });
+    return [...new Set([...specific, ...generic])].filter(element => {
+      const value = text(element);
+      return value && ![...element.children].some(child => text(child) === value);
+    });
   };
 
-  const choose = async (field, value) => {
+  const optionFor = value => {
+    const wanted = normalize(value);
+    return optionCandidates().find(option => {
+      const optionValue = normalize(option.getAttribute("value") || option.getAttribute("data-value") || option.getAttribute("aria-label") || "");
+      return text(option) === wanted || optionValue === wanted;
+    });
+  };
+
+  const rowValue = row => normalize(row?.innerText || row?.textContent || "");
+
+  const chooseDropdown = async (field, value) => {
     if (!field?.control || !value) return false;
-    const trigger = field.control;
-    if (trigger instanceof HTMLSelectElement) {
-      const option = [...trigger.options].find(node => norm(node.textContent) === norm(value) || norm(node.value) === norm(value));
+    const wanted = normalize(value);
+    const control = field.control;
+
+    if (control instanceof HTMLSelectElement) {
+      const option = [...control.options].find(item => text(item) === wanted || normalize(item.value) === wanted);
       if (!option) return false;
-      trigger.value = option.value;
-      ["input", "change", "blur"].forEach(type => trigger.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
+      control.value = option.value;
+      ["input", "change", "blur"].forEach(type => control.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
       return true;
     }
 
-    clickHuman(trigger);
+    dispatchClick(control);
     await wait(180);
-    for (let attempt = 0; attempt < 60; attempt++) {
-      const option = optionNodes().find(node => ownText(node) === norm(value));
-      if (option) {
-        clickHuman(option);
-        await wait(300);
-        if (rowHasValue(field.row, value)) return true;
-      }
-      await wait(50);
+
+    const option = await waitFor(() => optionFor(value), 50, 50);
+    if (option) {
+      dispatchClick(option.closest("[role='option'], [role='menuitem'], mat-option, .mat-option, .mat-mdc-option, .mdc-list-item, .ng-option, .dropdown-item, li, button") || option);
+      await wait(300);
+      if (rowValue(field.row).includes(wanted) && !rowValue(field.row).includes("select")) return true;
     }
 
-    trigger.focus?.();
-    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", code: "Home", bubbles: true }));
-    for (let i = 0; i < 10; i++) {
-      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
-      await wait(25);
-      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
-      await wait(120);
-      if (rowHasValue(field.row, value)) return true;
+    // Keyboard fallback for controls that ignore synthetic mouse events.
+    control.focus?.();
+    control.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", code: "Home", bubbles: true }));
+    for (let index = 0; index < 10; index++) {
+      control.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
+      await wait(30);
+      const currentOption = optionFor(value);
+      if (currentOption) {
+        control.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+        await wait(250);
+        if (rowValue(field.row).includes(wanted) && !rowValue(field.row).includes("select")) return true;
+      }
     }
-    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    control.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
     return false;
   };
 
   const fillPassenger = async passenger => {
-    const root = getPassengerDialog();
-    const name = inputFor(root, ["full name as per govt. id", "full name"]);
-    const age = inputFor(root, ["age"]);
-    const gender = interactiveFor(root, ["gender"]);
-    const country = interactiveFor(root, ["country"]);
-    const preference = interactiveFor(root, ["preferences", "preference"]);
+    const root = dialog();
+    const name = inputField(root, ["full name as per govt. id", "full name"]);
+    const age = inputField(root, ["age"]);
+    const gender = dropdownField(root, ["gender"]);
+    const country = dropdownField(root, ["country"]);
+    const preference = dropdownField(root, ["preferences", "preference"]);
 
     let filled = 0;
     if (setInput(name.control, passenger.name)) filled++;
     if (setInput(age.control, passenger.age)) filled++;
-    const genderOk = await choose(gender, passenger.gender);
+    const genderOk = await chooseDropdown(gender, passenger.gender);
     if (genderOk) filled++;
-    const countryOk = await choose(country, passenger.country || "India");
+    const countryOk = await chooseDropdown(country, passenger.country || "India");
     if (countryOk) filled++;
-    const preferenceOk = await choose(preference, passenger.preference);
+    const preferenceOk = await chooseDropdown(preference, passenger.preference);
     if (preferenceOk) filled++;
     return { filled, genderOk, preferenceOk };
   };
 
-  const buttons = selector => visibleNodes(document, selector);
-  const findButton = value => buttons("button, a, [role='button']").find(node => ownText(node).includes(norm(value)));
-  const openPassenger = async () => { const button = findButton("new passenger"); if (!button) return false; clickHuman(button); await wait(400); return true; };
-  const addPassenger = async () => { const button = buttons("button, [role='button']").find(node => /^(add|add passenger|save passenger)$/i.test((node.innerText || node.textContent || "").trim())); if (!button) return false; clickHuman(button); await wait(500); return true; };
+  const button = value => nodes(document, "button, a, [role='button']").find(element => text(element).includes(normalize(value)));
+  const openPassenger = async () => { const target = button("new passenger"); if (!target) return false; dispatchClick(target); await wait(450); return true; };
+  const addPassenger = async () => {
+    const target = nodes(document, "button, [role='button']").find(element => /^(add|add passenger|save passenger)$/i.test((element.innerText || element.textContent || "").trim()));
+    if (!target) return false;
+    dispatchClick(target);
+    await wait(500);
+    return true;
+  };
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!["fillPassengers", "selectExistingPassengers"].includes(message.action)) return;
     (async () => {
       try {
-        if (message.action === "selectExistingPassengers") { sendResponse({ message: "Select existing passengers manually from the IRCTC list." }); return; }
+        if (message.action === "selectExistingPassengers") {
+          sendResponse({ message: "Select existing passengers manually from the IRCTC list." });
+          return;
+        }
         const passengers = Array.isArray(message.passengers) ? message.passengers : [];
-        if (!passengers.length) { sendResponse({ message: "Add at least one passenger to the profile." }); return; }
+        if (!passengers.length) {
+          sendResponse({ message: "Add at least one passenger to the profile." });
+          return;
+        }
         let completed = 0;
         for (const passenger of passengers) {
           if (!await openPassenger()) break;
@@ -182,7 +232,7 @@
         }
         sendResponse({ message: completed === passengers.length ? `Added and filled ${completed} passenger(s). Review all details before continuing.` : `Filled ${completed} of ${passengers.length} passenger(s).` });
       } catch (error) {
-        console.error("IRCTC Passenger Autofill", error);
+        console.error("IRCTC Passenger Autofill:", error);
         sendResponse({ message: "Could not fill the passenger form. Please review manually." });
       }
     })();
