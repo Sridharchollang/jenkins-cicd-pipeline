@@ -1,23 +1,12 @@
 # IRCTC Passenger Autofill
 
-A separate Microsoft Edge Manifest V3 extension for the IRCTC passenger-information page.
+A Microsoft Edge Manifest V3 extension for filling multiple IRCTC passenger dialogs one after another.
 
-## Supported fields
+## Multiple passengers
 
-- Full Name as per Govt. ID
-- Age
-- Gender
-- Country
-- Preference
-- New Passenger modal opening
-- Existing Passenger list opening and name matching where the page exposes passenger names in the DOM
+1. Add each person to the profile with **+ Add Passenger**.
+2. Click **Add & Fill All Passengers**.
+3. The extension clicks **+ New Passenger**, fills one passenger, clicks the modal's **Add Passenger/Save Passenger** action, waits for the passenger to be added, and repeats for the next person.
+4. Review every passenger manually before continuing.
 
-## Install
-
-1. Open `edge://extensions` and enable Developer mode.
-2. Choose **Load unpacked**.
-3. Select the repository's `irctc-autofill` folder containing `manifest.json`.
-4. Open or reload the IRCTC passenger page.
-5. Open the extension, create a profile, and choose **Fill New Passenger** or **Select Existing Passenger**.
-
-The extension is intentionally limited to passenger form assistance. It does not automate CAPTCHA, payment, quota selection, queue handling, or final booking submission. Always review every field and use the official IRCTC controls yourself.
+The extension does not automate CAPTCHA, payment, quota selection, queue handling, or final booking submission. If IRCTC changes the modal button text or layout, complete that step manually.

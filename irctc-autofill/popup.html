@@ -10,7 +10,7 @@
   <div class="sub">Local passenger profiles</div>
   <label for="profileSelect">Passenger profile</label>
   <select id="profileSelect"></select>
-  <button id="newPassengerBtn" class="primary">Fill New Passenger</button>
+  <button id="fillAllBtn" class="primary">Add &amp; Fill All Passengers</button>
   <button id="existingPassengerBtn">Select Existing Passenger</button>
   <button id="saveBtn">Save Profile</button>
   <button id="newBtn">New Profile</button>
@@ -18,19 +18,11 @@
   <details open>
     <summary>Passenger details</summary>
     <label for="profileName">Profile name</label>
-    <input id="profileName" placeholder="Family passenger">
-    <label for="fullName">Full Name as per Govt. ID</label>
-    <input id="fullName" autocomplete="off">
-    <label for="age">Age</label>
-    <input id="age" type="number" min="1" max="120" inputmode="numeric">
-    <label for="gender">Gender</label>
-    <select id="gender"><option value="Male">Male</option><option value="Female">Female</option><option value="Transgender">Transgender</option></select>
-    <label for="country">Country</label>
-    <input id="country" value="India">
-    <label for="preference">Preference</label>
-    <select id="preference"><option value="">Select</option><option>Lower</option><option>Middle</option><option>Upper</option><option>Side Lower</option><option>Side Upper</option></select>
+    <input id="profileName" placeholder="Family passengers">
+    <div id="passengers"></div>
+    <button id="addPassengerBtn">+ Add Passenger</button>
   </details>
-  <p class="note">This extension only fills passenger information. It does not automate CAPTCHA, payment, quota selection, or final booking submission. Review every field before continuing.</p>
+  <p class="note">This extension opens and fills one IRCTC passenger dialog at a time. It does not automate CAPTCHA, payment, queue handling, or final booking submission. Review every passenger before continuing.</p>
   <script src="popup.js"></script>
 </body>
 </html>
