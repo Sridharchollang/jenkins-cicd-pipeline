@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>TTD Smart Autofill</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h2>TTD Smart Autofill</h2>
+  <div class="sub">Profiles and multiple pilgrims</div>
+  <label for="profileSelect">Profile</label>
+  <select id="profileSelect"></select>
+  <button id="fillBtn" class="primary">Fill Form Only</button>
+  <button id="saveBtn">Save Profile</button>
+  <button id="newBtn">New Profile</button>
+  <div id="status" class="status">Ready</div>
+  <details open>
+    <summary>Profile details</summary>
+    <label for="profileName">Profile name</label>
+    <input id="profileName" placeholder="Family 1">
+    <div id="pilgrims"></div>
+    <button id="addPilgrimBtn">+ Add Pilgrim</button>
+    <button id="deleteBtn" class="danger">Delete Profile</button>
+  </details>
+  <p class="note">Data is stored locally in Edge. Review every field before continuing. This extension does not automate CAPTCHA, payment, queues, or final submission.</p>
+  <script src="popup.js"></script>
+</body>
+</html>

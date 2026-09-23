@@ -1,0 +1,23 @@
+# TTD Smart Autofill for Microsoft Edge
+
+This folder is a Manifest V3 Edge extension for the TTD pilgrim-details page.
+
+## Features
+
+- Multiple local profiles
+- Multiple pilgrims per profile
+- Name, age, gender, photo ID proof, and photo ID number
+- Fill only; it does not submit the booking
+- No CAPTCHA, queue, payment, or booking automation
+
+## Install
+
+1. Download the repository branch as a ZIP from GitHub.
+2. Extract it.
+3. Open `edge://extensions` and enable Developer mode.
+4. Select **Load unpacked**.
+5. Select the extracted `ttd-edge-autofill` folder, the one containing `manifest.json`.
+6. Open or reload the TTD pilgrim-details page.
+7. Open the extension, create/select a profile, add pilgrims, and choose **Fill Form Only**.
+
+Review every field before continuing with the official booking flow.
