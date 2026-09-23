@@ -5,83 +5,74 @@
     if (!element || element.disabled) return false;
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
-    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse";
   };
 
-  const dialog = () => document.querySelector(".ui-dialog.add-passenger-dialog") || document.querySelector(".add-passenger-dialog.ui-dialog");
-  const dropdown = (formControlName) => dialog()?.querySelector(`p-dropdown[formcontrolname="${formControlName}"]`) || null;
+  const dialog = () => [...document.querySelectorAll(".ui-dialog.add-passenger-dialog, .add-passenger-dialog.ui-dialog")].find(visible);
+  const dropdown = name => dialog()?.querySelector(`p-dropdown[formcontrolname="${name}"]`) || null;
+  const selectedText = field => normalize(field?.querySelector(".ui-dropdown-label:not(.ui-placeholder)")?.textContent || "");
 
-  const setInput = (control, value) => {
-    if (!control || value === undefined || value === null || value === "") return false;
-    const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
-    if (setter) setter.call(control, String(value)); else control.value = String(value);
-    ["input", "change", "blur"].forEach(type => control.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
+  const setInput = (element, value) => {
+    if (!element || value === undefined || value === null || value === "") return false;
+    const proto = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    if (setter) setter.call(element, String(value)); else element.value = String(value);
+    ["input", "change", "blur"].forEach(type => element.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
     return true;
   };
 
-  const humanClick = element => {
-    if (!element) return;
-    element.scrollIntoView?.({ block: "nearest" });
-    const rect = element.getBoundingClientRect();
-    const init = { bubbles: true, cancelable: true, composed: true, view: window, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
-    if (typeof PointerEvent === "function") element.dispatchEvent(new PointerEvent("pointerdown", { ...init, pointerId: 1, pointerType: "mouse" }));
-    element.dispatchEvent(new MouseEvent("mousedown", init));
-    if (typeof PointerEvent === "function") element.dispatchEvent(new PointerEvent("pointerup", { ...init, pointerId: 1, pointerType: "mouse" }));
-    element.dispatchEvent(new MouseEvent("mouseup", init));
-    element.dispatchEvent(new MouseEvent("click", init));
-    element.click?.();
+  // Important: do not dispatch a click and then call element.click(). That
+  // activates PrimeNG twice, opening and immediately closing the dropdown.
+  const clickOnce = element => {
+    if (!element) return false;
+    element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    element.click();
+    return true;
   };
 
-  const selectedText = field => normalize(field?.querySelector(".ui-dropdown-label")?.textContent || "");
-
-  const openPanelOptions = () => [...document.querySelectorAll(
-    ".ap-dropdown-panel.ui-dropdown-panel li.ui-dropdown-item, " +
-    ".ap-dropdown-panel .ui-dropdown-items li, " +
-    ".ui-dropdown-panel li[role='option'], " +
-    ".ui-dropdown-panel .ui-dropdown-item, " +
-    ".ui-dropdown-panel li"
+  const visiblePanels = () => [...document.querySelectorAll(
+    ".ui-dropdown-panel, .ap-dropdown-panel, .ui-dropdown-items-wrapper, [role='listbox']"
   )].filter(visible);
 
-  const chooseDropdown = async (formControlName, requestedValue) => {
-    const field = dropdown(formControlName);
-    if (!field || !requestedValue) return false;
-    const wanted = normalize(requestedValue);
-    const trigger = field.querySelector(".ui-dropdown-trigger, .ui-dropdown-label-container") || field.querySelector(".ui-dropdown");
-    if (!trigger) return false;
+  const panelOptions = () => visiblePanels().flatMap(panel => [
+    ...panel.querySelectorAll("li.ui-dropdown-item, li[role='option'], .ui-dropdown-item, [role='option']")
+  ]).filter(visible).filter(item => normalize(item.textContent));
 
-    const current = selectedText(field);
-    if (current === wanted) return true;
-    humanClick(trigger);
+  const chooseDropdown = async (name, value) => {
+    const field = dropdown(name);
+    if (!field || !value) return false;
+    const wanted = normalize(value);
+    if (selectedText(field) === wanted) return true;
 
-    for (let attempt = 0; attempt < 50; attempt++) {
-      const option = openPanelOptions().find(item => normalize(item.textContent) === wanted);
-      if (option) {
-        humanClick(option);
-        for (let check = 0; check < 20; check++) {
-          await wait(50);
-          if (selectedText(field) === wanted) return true;
-        }
-        return false;
+    const trigger = field.querySelector(".ui-dropdown-trigger") || field.querySelector(".ui-dropdown-label-container");
+    if (!clickOnce(trigger)) return false;
+
+    const option = await (async () => {
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const match = panelOptions().find(item => normalize(item.textContent) === wanted);
+        if (match) return match;
+        await wait(50);
       }
-      await wait(50);
-    }
+      return null;
+    })();
 
-    field.querySelector("[role='listbox']")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    if (!option) return false;
+    clickOnce(option);
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await wait(50);
+      if (selectedText(field) === wanted) return true;
+    }
     return false;
   };
 
   const fillPassenger = async passenger => {
     const root = dialog();
-    if (!root) return { nameOk: false, genderOk: false, preferenceOk: false };
-
-    const name = root.querySelector("input[formcontrolname='passengerName'], p-autocomplete input[role='searchbox']");
-    const age = root.querySelector("input[formcontrolname='passengerAge']");
+    if (!root) return { nameOk: false, ageOk: false, genderOk: false, countryOk: false, preferenceOk: false };
+    const nameOk = setInput(root.querySelector("input[formcontrolname='passengerName'], p-autocomplete input[role='searchbox']"), passenger.name);
+    const ageOk = setInput(root.querySelector("input[formcontrolname='passengerAge']"), passenger.age);
     const genderOk = await chooseDropdown("passengerGender", passenger.gender);
     const countryOk = await chooseDropdown("passengerNationality", passenger.country || "India");
     const preferenceOk = await chooseDropdown("passengerBerthChoice", passenger.preference);
-    const nameOk = setInput(name, passenger.name);
-    const ageOk = setInput(age, passenger.age);
     return { nameOk, ageOk, genderOk, countryOk, preferenceOk };
   };
 
@@ -91,8 +82,8 @@
   const openPassenger = async () => {
     const button = newPassengerButton();
     if (!button) return false;
-    humanClick(button);
-    for (let attempt = 0; attempt < 30; attempt++) {
+    clickOnce(button);
+    for (let attempt = 0; attempt < 40; attempt++) {
       if (dialog()) return true;
       await wait(50);
     }
@@ -102,7 +93,7 @@
   const addPassenger = async () => {
     const button = addButton();
     if (!button || !visible(button)) return false;
-    humanClick(button);
+    clickOnce(button);
     await wait(500);
     return !dialog();
   };
@@ -116,22 +107,13 @@
           return;
         }
         const passengers = Array.isArray(message.passengers) ? message.passengers : [];
-        if (!passengers.length) {
-          sendResponse({ message: "Add at least one passenger to the profile." });
-          return;
-        }
+        if (!passengers.length) { sendResponse({ message: "Add at least one passenger to the profile." }); return; }
         let completed = 0;
         for (const passenger of passengers) {
           if (!await openPassenger()) break;
           const result = await fillPassenger(passenger);
           if (!result.nameOk || !result.ageOk || !result.genderOk || !result.countryOk || !result.preferenceOk) {
-            const missing = [
-              !result.nameOk && "Name",
-              !result.ageOk && "Age",
-              !result.genderOk && "Gender",
-              !result.countryOk && "Country",
-              !result.preferenceOk && "Preference"
-            ].filter(Boolean).join(", ");
+            const missing = [!result.nameOk && "Name", !result.ageOk && "Age", !result.genderOk && "Gender", !result.countryOk && "Country", !result.preferenceOk && "Preference"].filter(Boolean).join(", ");
             sendResponse({ message: `Passenger ${completed + 1} could not be completed. Check: ${missing}.` });
             return;
           }
