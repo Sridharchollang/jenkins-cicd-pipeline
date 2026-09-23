@@ -8,6 +8,7 @@ const escapeHtml = value => String(value ?? "").replaceAll("&", "&amp;").replace
 
 function migrateProfile(profile) {
   if (!Array.isArray(profile.passengers)) profile.passengers = [profile.passenger || emptyPassenger()];
+  profile.passengers = profile.passengers.map(passenger => ({ ...emptyPassenger(), ...passenger }));
   delete profile.passenger;
   return profile;
 }
@@ -39,20 +40,21 @@ function renderEditor() {
       <label>Full Name as per Govt. ID</label><input data-key="name" data-index="${index}" value="${escapeHtml(passenger.name)}">
       <label>Age</label><input data-key="age" data-index="${index}" value="${escapeHtml(passenger.age)}" type="number" min="1" max="120" inputmode="numeric">
       <label>Gender</label><select data-key="gender" data-index="${index}"><option>Male</option><option>Female</option><option>Transgender</option></select>
-      <label>Country</label><input data-key="country" data-index="${index}" value="${escapeHtml(passenger.country || "India")}"">
+      <label>Country</label><input data-key="country" data-index="${index}" value="${escapeHtml(passenger.country)}">
       <label>Preference</label><select data-key="preference" data-index="${index}"><option value="">Select</option><option>Lower</option><option>Middle</option><option>Upper</option><option>Side Lower</option><option>Side Upper</option></select>
       <button class="remove" data-remove="${index}">Remove Passenger</button>`;
     root.append(box);
-    box.querySelector('[data-key="gender"]').value = passenger.gender || "Male";
-    box.querySelector('[data-key="preference"]').value = passenger.preference || "";
+    box.querySelector('[data-key="gender"]').value = passenger.gender;
+    box.querySelector('[data-key="preference"]').value = passenger.preference;
   });
 }
 
 function readEditor() {
   const profile = current();
-  profile.name = document.getElementById("profileName").value.trim() || "Passengers";
+  profile.name = document.getElementById("profileName").value.trim() || "Family passengers";
   document.querySelectorAll("#passengers [data-key]").forEach(element => {
-    profile.passengers[Number(element.dataset.index)][element.dataset.key] = element.value;
+    const index = Number(element.dataset.index);
+    profile.passengers[index][element.dataset.key] = element.value;
   });
 }
 
