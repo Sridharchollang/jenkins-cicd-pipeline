@@ -27,8 +27,10 @@
   const nativeSetter = (element, value) => {
     const prototype = element instanceof HTMLTextAreaElement
       ? HTMLTextAreaElement.prototype
-      : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+      : element instanceof HTMLInputElement
+        ? HTMLInputElement.prototype
+        : null;
+    const setter = prototype && Object.getOwnPropertyDescriptor(prototype, "value")?.set;
     if (setter) setter.call(element, String(value));
     else element.value = String(value);
   };
@@ -42,7 +44,7 @@
 
   const optionMatches = (element, value) => {
     const wanted = normalize(value);
-    const text = normalize(element.innerText || element.textContent);
+    const text = normalize(element.textContent);
     const optionValue = normalize(element.getAttribute("value"));
     return text === wanted || optionValue === wanted;
   };
@@ -57,36 +59,22 @@
     return true;
   };
 
+  // The TTD overlay has changed markup between releases. Search the open
+  // overlay by exact visible text instead of relying on one CSS class.
   const overlayCandidates = () => {
-    const selectors = [
-      "[role='option']", "[role='menuitem']", "mat-option", ".mat-option",
-      ".mat-mdc-option", ".mdc-list-item", ".cdk-overlay-pane li",
-      ".cdk-overlay-pane button", ".cdk-overlay-pane [class*='option']",
-      ".dropdown-menu li", ".dropdown-menu button", "[class*='dropdown'] li"
-    ];
-    return [...new Set(document.querySelectorAll(selectors.join(",")))]
-      .filter(visible)
-      .filter(element => normalize(element.innerText || element.textContent));
+    const roots = [...document.querySelectorAll(
+      "[role='listbox'], [role='menu'], mat-option, .mat-option, .mat-mdc-option, " +
+      ".cdk-overlay-pane, .cdk-overlay-container, .dropdown-menu, [class*='dropdown']"
+    )].filter(visible);
+    const candidates = roots.flatMap(root => [
+      ...root.querySelectorAll("[role='option'], [role='menuitem'], mat-option, li, button, option, " +
+        ".mat-option, .mat-mdc-option, .mdc-list-item, div, span")
+    ]);
+    return [...new Set(candidates)].filter(visible).filter(element => {
+      // Prefer leaf-like nodes so a whole overlay/container is never clicked.
+      return ![...element.children].some(child => normalize(child.textContent) === normalize(element.textContent));
+    });
   };
-
-  const clickOption = option => {
-    const target = option.closest(
-      "[role='option'], [role='menuitem'], mat-option, .mat-option, .mat-mdc-option, " +
-      ".mdc-list-item, li, button"
-    ) || option;
-    const rect = target.getBoundingClientRect();
-    const eventOptions = { bubbles: true, cancelable: true, composed: true, view: window,
-      clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
-    target.dispatchEvent(new PointerEvent("pointerdown", { ...eventOptions, pointerId: 1, pointerType: "mouse" }));
-    target.dispatchEvent(new MouseEvent("mousedown", eventOptions));
-    target.dispatchEvent(new PointerEvent("pointerup", { ...eventOptions, pointerId: 1, pointerType: "mouse" }));
-    target.dispatchEvent(new MouseEvent("mouseup", eventOptions));
-    target.click();
-  };
-
-  const customSelectText = element => normalize(
-    element.innerText || element.textContent || element.getAttribute("aria-label") || ""
-  );
 
   const setCustomSelect = async (element, value) => {
     if (!element || value === undefined || value === null || value === "") return false;
@@ -98,30 +86,18 @@
     element.click();
     let option = null;
     for (let attempt = 0; attempt < 30 && !option; attempt++) {
-      const matches = overlayCandidates().filter(item => optionMatches(item, value));
-      // Select the smallest matching node. Clicking an overlay/container can
-      // reopen the menu instead of committing the value.
-      option = matches.sort((a, b) => (a.getBoundingClientRect().width * a.getBoundingClientRect().height) -
-        (b.getBoundingClientRect().width * b.getBoundingClientRect().height))[0] || null;
+      option = overlayCandidates().find(item => optionMatches(item, value));
       if (!option) await wait(50);
     }
     if (!option) {
       element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       return false;
     }
-
-    clickOption(option);
-    await wait(250);
-    const selected = customSelectText(element);
-    if (selected.includes(normalize(value))) return true;
-
-    // Some TTD builds handle the click on the option's parent control.
-    const parent = option.parentElement;
-    if (parent && parent !== option && optionMatches(parent, value)) {
-      clickOption(parent);
-      await wait(250);
-    }
-    return customSelectText(element).includes(normalize(value));
+    option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
+    option.click();
+    option.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, composed: true }));
+    await wait(150);
+    return true;
   };
 
   const best = (available, keywords, used) => {
