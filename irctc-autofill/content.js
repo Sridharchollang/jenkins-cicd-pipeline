@@ -35,6 +35,7 @@
   const openOptions = () => [...document.querySelectorAll(optionSelector)].filter(visible).filter(item => textOf(item));
   const clickOption = element => {
     const target = element.closest("[role='option'], [role='menuitem'], mat-option, .mat-option, .mat-mdc-option, .mdc-list-item, li, button") || element;
+    target.scrollIntoView({ block: "nearest" });
     const rect = target.getBoundingClientRect();
     const init = { bubbles: true, cancelable: true, composed: true, view: window, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
     if (typeof PointerEvent === "function") target.dispatchEvent(new PointerEvent("pointerdown", { ...init, pointerId: 1, pointerType: "mouse" }));
@@ -51,11 +52,15 @@
     ["input", "change", "blur"].forEach(type => element.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
     return true;
   };
-  const selectedText = element => normalize(element?.value || element?.getAttribute("aria-label") || element?.innerText || element?.textContent || "");
+  const controlDisplay = element => {
+    const host = element.closest("mat-form-field, .mat-form-field, .form-group, [class*='select'], [class*='dropdown'], label") || element;
+    return normalize(host.innerText || host.textContent || element.getAttribute("aria-label") || "");
+  };
   const selectCustom = async (element, value) => {
     if (!element || !value) return false;
     if (element instanceof HTMLSelectElement || element.tagName?.toLowerCase() === "select") return selectNative(element, value);
-    element.focus?.(); element.click(); await wait(120);
+    const wanted = normalize(value);
+    element.focus?.(); element.click(); await wait(150);
     for (let attempt = 0; attempt < 30; attempt++) {
       const option = openOptions().filter(item => exact(item, value)).sort((a, b) => {
         const area = node => node.getBoundingClientRect().width * node.getBoundingClientRect().height;
@@ -63,13 +68,20 @@
       })[0];
       if (option) {
         clickOption(option);
-        await wait(250);
-        if (selectedText(element).includes(normalize(value))) return true;
-        option.closest("li, button, [role='option'], [role='menuitem']")?.click();
-        await wait(250);
-        if (selectedText(element).includes(normalize(value))) return true;
+        await wait(350);
+        const expanded = element.getAttribute("aria-expanded");
+        const display = controlDisplay(element);
+        const stillOpen = openOptions().some(item => exact(item, value));
+        if ((expanded === "false" || !stillOpen) && display.includes(wanted)) return true;
+        // Try the actual element at the option's center for portals whose
+        // handler is attached to a parent overlay row.
+        const rect = option.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        if (hit && hit !== option) clickOption(hit);
+        await wait(350);
+        if ((element.getAttribute("aria-expanded") === "false" || !openOptions().some(item => exact(item, value))) && controlDisplay(element).includes(wanted)) return true;
       }
-      await wait(50);
+      await wait(60);
     }
     element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     return false;
@@ -84,10 +96,12 @@
     let filled = 0;
     if (setInput(name, passenger.name)) filled++;
     if (setInput(age, passenger.age)) filled++;
-    if (await selectCustom(gender, passenger.gender)) filled++;
+    const genderOk = await selectCustom(gender, passenger.gender);
+    if (genderOk) filled++;
     if (setInput(country, passenger.country)) filled++;
-    if (await selectCustom(preference, passenger.preference)) filled++;
-    return filled;
+    const preferenceOk = passenger.preference ? await selectCustom(preference, passenger.preference) : true;
+    if (preferenceOk && passenger.preference) filled++;
+    return { filled, genderOk, preferenceOk };
   };
   const clickByText = text => [...document.querySelectorAll("button, a, [role='button']")].find(element => visible(element) && textOf(element).includes(normalize(text)));
   const openNewPassenger = async () => { const button = clickByText("new passenger"); if (!button) return false; button.click(); await wait(350); return true; };
@@ -100,7 +114,17 @@
         if (message.action === "selectExistingPassengers") { sendResponse({ message: "Existing passenger selection must be completed from the IRCTC list. Review the available passengers manually." }); return; }
         if (!passengers.length) { sendResponse({ message: "Add at least one passenger to the profile." }); return; }
         let total = 0; let completed = 0;
-        for (const passenger of passengers) { if (!await openNewPassenger()) break; total += await fillFields(passenger); if (!await confirmPassenger()) break; completed++; await wait(250); }
+        for (const passenger of passengers) {
+          if (!await openNewPassenger()) break;
+          const result = await fillFields(passenger);
+          total += result.filled;
+          if (!result.genderOk || !result.preferenceOk) {
+            sendResponse({ message: `Passenger ${completed + 1} was not added because Gender or Preference was not selected. Please select both fields manually.` });
+            return;
+          }
+          if (!await confirmPassenger()) break;
+          completed++; await wait(250);
+        }
         sendResponse({ message: completed === passengers.length ? `Added and filled ${completed} passenger(s). Review all details before continuing.` : `Filled ${total} field(s) for ${completed} of ${passengers.length} passenger(s). Complete the remaining passenger manually.` });
       } catch (error) { console.error("IRCTC Passenger Autofill:", error); sendResponse({ message: "Could not fill the passenger form. Please review manually." }); }
     })();
