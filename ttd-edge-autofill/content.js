@@ -27,10 +27,10 @@
   const nativeSetter = (element, value) => {
     const prototype = element instanceof HTMLTextAreaElement
       ? HTMLTextAreaElement.prototype
-      : element instanceof HTMLSelectElement
-        ? HTMLSelectElement.prototype
-        : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+      : element instanceof HTMLInputElement
+        ? HTMLInputElement.prototype
+        : null;
+    const setter = prototype && Object.getOwnPropertyDescriptor(prototype, "value")?.set;
     if (setter) setter.call(element, String(value));
     else element.value = String(value);
   };
@@ -46,53 +46,57 @@
     const wanted = normalize(value);
     const text = normalize(element.textContent);
     const optionValue = normalize(element.getAttribute("value"));
-    return text === wanted || optionValue === wanted || text.includes(wanted) || optionValue.includes(wanted);
+    return text === wanted || optionValue === wanted;
   };
 
   const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
   const setNativeSelect = (element, value) => {
-    // Use the real select setter and dispatch a bubbling change event. This is
-    // required by Angular forms; assigning selectedIndex alone is not enough.
-    const options = [...(element.options || [])];
-    const option = options.find(item => optionMatches(item, value));
+    const option = [...element.options].find(item => optionMatches(item, value));
     if (!option) return false;
-    const selectedIndex = options.indexOf(option);
-    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "selectedIndex")?.set;
-    if (setter) setter.call(element, selectedIndex);
-    else element.selectedIndex = selectedIndex;
+    element.value = option.value;
     ["input", "change", "blur"].forEach(type => element.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
     return true;
   };
 
-  const overlayOptions = () => [...document.querySelectorAll(
-    "[role='option'], mat-option, .mat-option, .mat-mdc-option, .mdc-list-item, " +
-    "[role='listbox'] li, [role='listbox'] option, [role='listbox'] [class*='option']"
-  )].filter(visible);
+  // The TTD overlay has changed markup between releases. Search the open
+  // overlay by exact visible text instead of relying on one CSS class.
+  const overlayCandidates = () => {
+    const roots = [...document.querySelectorAll(
+      "[role='listbox'], [role='menu'], mat-option, .mat-option, .mat-mdc-option, " +
+      ".cdk-overlay-pane, .cdk-overlay-container, .dropdown-menu, [class*='dropdown']"
+    )].filter(visible);
+    const candidates = roots.flatMap(root => [
+      ...root.querySelectorAll("[role='option'], [role='menuitem'], mat-option, li, button, option, " +
+        ".mat-option, .mat-mdc-option, .mdc-list-item, div, span")
+    ]);
+    return [...new Set(candidates)].filter(visible).filter(element => {
+      // Prefer leaf-like nodes so a whole overlay/container is never clicked.
+      return ![...element.children].some(child => normalize(child.textContent) === normalize(element.textContent));
+    });
+  };
 
   const setCustomSelect = async (element, value) => {
     if (!element || value === undefined || value === null || value === "") return false;
-
-    // TTD currently renders gender as a native select in some page versions.
-    // Do this before clicking: clicking a native select opens the browser menu,
-    // which is not represented by selectable DOM options.
-    if (element instanceof HTMLSelectElement || element.tagName?.toLowerCase() === "select" || element.options) {
+    if (element instanceof HTMLSelectElement || element.tagName?.toLowerCase() === "select") {
       return setNativeSelect(element, value);
     }
 
     element.focus?.();
     element.click();
-    let option;
-    for (let attempt = 0; attempt < 20 && !option; attempt++) {
-      option = overlayOptions().find(item => optionMatches(item, value));
+    let option = null;
+    for (let attempt = 0; attempt < 30 && !option; attempt++) {
+      option = overlayCandidates().find(item => optionMatches(item, value));
       if (!option) await wait(50);
     }
     if (!option) {
       element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       return false;
     }
+    option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
     option.click();
-    await wait(100);
+    option.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, composed: true }));
+    await wait(150);
     return true;
   };
 
@@ -132,8 +136,7 @@
   const findGroups = expected => {
     const all = fields(document);
     const candidates = [...document.querySelectorAll("fieldset, section, article, li, tr, .row, [class*='pilgrim'], [class*='passenger'], [class*='devotee']")]
-      .filter(visible)
-      .filter(group => fields(group).length >= 3);
+      .filter(visible).filter(group => fields(group).length >= 3);
     const unique = [];
     for (const group of candidates) {
       if (!unique.some(existing => existing.contains(group))) unique.push(group);
@@ -154,9 +157,7 @@
         const pilgrims = Array.isArray(message.profile?.pilgrims) ? message.profile.pilgrims : [];
         const groups = findGroups(pilgrims.length);
         let filled = 0;
-        for (const [index, pilgrim] of pilgrims.entries()) {
-          filled += await fillPilgrim(groups[index] || document, pilgrim);
-        }
+        for (const [index, pilgrim] of pilgrims.entries()) filled += await fillPilgrim(groups[index] || document, pilgrim);
         sendResponse({ message: filled ? `Filled ${filled} field(s) for ${pilgrims.length} pilgrim(s). Review all details before continuing.` : "No matching fields found. Check the page and form labels." });
       } catch (error) {
         console.error("TTD Smart Autofill:", error);
