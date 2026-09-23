@@ -51,26 +51,37 @@
     return text === wanted || optionValue === wanted || text.includes(wanted) || optionValue.includes(wanted);
   };
 
-  const setCustomSelect = (element, value) => {
+  const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+  // Angular Material renders its overlay asynchronously after mat-select.click().
+  // Do not query the options immediately: on a fast page that races the overlay
+  // and leaves gender/photo-ID unchanged.
+  const visibleOptions = () => [...document.querySelectorAll(
+    "[role='option'], mat-option, .mat-option, [role='listbox'] [class*='option']"
+  )].filter(visible);
+
+  const setCustomSelect = async (element, value) => {
     if (!element || value === undefined || value === null || value === "") return false;
 
-    // Native selects can be assigned directly.
     if (element instanceof HTMLSelectElement) {
       const option = [...element.options].find(item => optionMatches(item, value));
       return option ? setValue(element, option.value) : false;
     }
 
-    // Angular Material's mat-select opens a listbox after it is clicked.
     element.click();
-    const options = [...document.querySelectorAll(
-      "[role='option'], mat-option, .mat-option, [role='listbox'] [class*='option']"
-    )].filter(visible);
-    const option = options.find(item => optionMatches(item, value));
+    let option;
+    // The overlay may take several animation frames to be attached to body.
+    for (let attempt = 0; attempt < 12 && !option; attempt++) {
+      option = visibleOptions().find(item => optionMatches(item, value));
+      if (!option) await wait(50);
+    }
     if (!option) {
       element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       return false;
     }
     option.click();
+    // Allow Angular to propagate the selection before the next pilgrim starts.
+    await wait(30);
     return true;
   };
 
@@ -90,7 +101,7 @@
     return selected;
   };
 
-  const fillPilgrim = (root, pilgrim) => {
+  const fillPilgrim = async (root, pilgrim) => {
     const available = fields(root);
     const used = new Set();
     let count = 0;
@@ -101,8 +112,8 @@
     const number = best(available, ["photo id number", "id number", "proof id number", "document number", "identity number"], used);
     if (setValue(name, pilgrim.name)) count++;
     if (setValue(age, pilgrim.age)) count++;
-    if (setCustomSelect(gender, pilgrim.gender)) count++;
-    if (setCustomSelect(proof, pilgrim.idType)) count++;
+    if (await setCustomSelect(gender, pilgrim.gender)) count++;
+    if (await setCustomSelect(proof, pilgrim.idType)) count++;
     if (setValue(number, pilgrim.idNumber)) count++;
     return count;
   };
@@ -127,16 +138,20 @@
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action !== "fill") return;
-    try {
-      const pilgrims = Array.isArray(message.profile?.pilgrims) ? message.profile.pilgrims : [];
-      const groups = findGroups(pilgrims.length);
-      let filled = 0;
-      pilgrims.forEach((pilgrim, index) => { filled += fillPilgrim(groups[index] || document, pilgrim); });
-      sendResponse({ message: filled ? `Filled ${filled} field(s) for ${pilgrims.length} pilgrim(s). Review all details before continuing.` : "No matching fields found. Check the page and form labels." });
-    } catch (error) {
-      console.error("TTD Smart Autofill:", error);
-      sendResponse({ message: "Could not fill this page. Please review manually." });
-    }
+    (async () => {
+      try {
+        const pilgrims = Array.isArray(message.profile?.pilgrims) ? message.profile.pilgrims : [];
+        const groups = findGroups(pilgrims.length);
+        let filled = 0;
+        for (const [index, pilgrim] of pilgrims.entries()) {
+          filled += await fillPilgrim(groups[index] || document, pilgrim);
+        }
+        sendResponse({ message: filled ? `Filled ${filled} field(s) for ${pilgrims.length} pilgrim(s). Review all details before continuing.` : "No matching fields found. Check the page and form labels." });
+      } catch (error) {
+        console.error("TTD Smart Autofill:", error);
+        sendResponse({ message: "Could not fill this page. Please review manually." });
+      }
+    })();
     return true;
   });
 })();
