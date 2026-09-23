@@ -8,12 +8,16 @@
     return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
   };
 
-  const fields = root => [...(root || document).querySelectorAll("input, select, textarea")].filter(visible);
+  // TTD uses Angular Material controls for gender and photo-ID proof. They are
+  // not native <select> elements, so include comboboxes/mat-selects as well.
+  const fields = root => [...(root || document).querySelectorAll(
+    "input, select, textarea, [role='combobox'], [aria-haspopup='listbox'], mat-select"
+  )].filter(visible);
 
   const textFor = element => {
     const values = [];
     if (element.labels) [...element.labels].forEach(label => values.push(label.innerText));
-    ["aria-label", "placeholder", "name", "id", "formcontrolname"].forEach(attribute => {
+    ["aria-label", "aria-labelledby", "placeholder", "name", "id", "formcontrolname"].forEach(attribute => {
       const value = element.getAttribute(attribute);
       if (value) values.push(value);
     });
@@ -40,15 +44,34 @@
     return true;
   };
 
-  const setSelect = (element, value) => {
-    if (!(element instanceof HTMLSelectElement)) return setValue(element, value);
+  const optionMatches = (element, value) => {
     const wanted = normalize(value);
-    const option = [...element.options].find(item => {
-      const text = normalize(item.textContent);
-      const optionValue = normalize(item.value);
-      return text === wanted || optionValue === wanted || text.includes(wanted) || optionValue.includes(wanted);
-    });
-    return option ? setValue(element, option.value) : false;
+    const text = normalize(element.textContent);
+    const optionValue = normalize(element.getAttribute("value"));
+    return text === wanted || optionValue === wanted || text.includes(wanted) || optionValue.includes(wanted);
+  };
+
+  const setCustomSelect = (element, value) => {
+    if (!element || value === undefined || value === null || value === "") return false;
+
+    // Native selects can be assigned directly.
+    if (element instanceof HTMLSelectElement) {
+      const option = [...element.options].find(item => optionMatches(item, value));
+      return option ? setValue(element, option.value) : false;
+    }
+
+    // Angular Material's mat-select opens a listbox after it is clicked.
+    element.click();
+    const options = [...document.querySelectorAll(
+      "[role='option'], mat-option, .mat-option, [role='listbox'] [class*='option']"
+    )].filter(visible);
+    const option = options.find(item => optionMatches(item, value));
+    if (!option) {
+      element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      return false;
+    }
+    option.click();
+    return true;
   };
 
   const best = (available, keywords, used) => {
@@ -78,8 +101,8 @@
     const number = best(available, ["photo id number", "id number", "proof id number", "document number", "identity number"], used);
     if (setValue(name, pilgrim.name)) count++;
     if (setValue(age, pilgrim.age)) count++;
-    if (setSelect(gender, pilgrim.gender)) count++;
-    if (setSelect(proof, pilgrim.idType)) count++;
+    if (setCustomSelect(gender, pilgrim.gender)) count++;
+    if (setCustomSelect(proof, pilgrim.idType)) count++;
     if (setValue(number, pilgrim.idNumber)) count++;
     return count;
   };
@@ -91,7 +114,6 @@
       .filter(group => fields(group).length >= 3);
     const unique = [];
     for (const group of candidates) {
-      const groupFields = fields(group);
       if (!unique.some(existing => existing.contains(group))) unique.push(group);
       if (unique.length >= expected) break;
     }
