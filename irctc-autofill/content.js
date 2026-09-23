@@ -7,17 +7,39 @@
     const style = getComputedStyle(element);
     return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
   };
-  const all = (root, selector = "*") => [...(root || document).querySelectorAll(selector)].filter(visible);
-  const text = element => normalize(element?.innerText || element?.textContent || "");
-  const exactText = (element, value) => text(element) === normalize(value);
+  const visibleNodes = (root, selector) => [...(root || document).querySelectorAll(selector)].filter(visible);
+  const ownText = element => normalize(element?.innerText || element?.textContent || "");
+  const exact = (element, value) => ownText(element) === normalize(value);
 
-  const modal = () => {
-    const candidates = all(document, "[role='dialog'], .modal, .modal-dialog, .cdk-overlay-pane, [class*='dialog'], [class*='modal']");
-    return candidates.sort((a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height - a.getBoundingClientRect().width * a.getBoundingClientRect().height)
-      .find(element => text(element).includes("addpassenger")) || document;
+  const getModal = () => {
+    const candidates = visibleNodes(document, "[role='dialog'], .modal, .modal-dialog, [class*='modal'], [class*='dialog']");
+    return candidates
+      .filter(node => ownText(node).includes("addpassenger"))
+      .sort((a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height - a.getBoundingClientRect().width * a.getBoundingClientRect().height)[0] || document;
   };
 
-  const inputSetter = (element, value) => {
+  const controlSelector = "input, textarea, select, button, [role='combobox'], [aria-haspopup='listbox'], [aria-expanded], mat-select";
+
+  // Find the control in the same compact row as the visible label. This avoids
+  // the previous bug where the whole modal text made every field score equally
+  // and the Country value was written into the Name field.
+  const controlForLabel = (root, labels) => {
+    const wanted = labels.map(normalize);
+    const labelNodes = visibleNodes(root, "label, span, div, p, mat-label").filter(node => {
+      const value = ownText(node);
+      return value && wanted.includes(value);
+    });
+    for (const label of labelNodes) {
+      let parent = label.parentElement;
+      for (let depth = 0; parent && depth < 5; depth++, parent = parent.parentElement) {
+        const controls = visibleNodes(parent, controlSelector).filter(control => !control.contains(label) && control !== label);
+        if (controls.length) return { control: controls[0], row: parent };
+      }
+    }
+    return null;
+  };
+
+  const setInput = (element, value) => {
     if (!element || value === undefined || value === null || value === "") return false;
     const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
@@ -26,131 +48,99 @@
     return true;
   };
 
-  const labelWords = element => {
-    const values = [];
-    if (element.labels) [...element.labels].forEach(label => values.push(label.innerText));
-    ["aria-label", "placeholder", "name", "id", "formcontrolname"].forEach(attribute => {
-      const value = element.getAttribute?.(attribute);
-      if (value) values.push(value);
-    });
-    const parent = element.closest("div, label, td, li, section, mat-form-field");
-    if (parent?.innerText) values.push(parent.innerText.slice(0, 260));
-    return normalize(values.join(" "));
+  const optionText = element => normalize(element?.innerText || element?.textContent || element?.getAttribute("aria-label") || element?.getAttribute("value") || "");
+  const optionMatches = (element, value) => {
+    const wanted = normalize(value);
+    return optionText(element) === wanted || normalize(element?.getAttribute("value") || "") === wanted;
   };
 
-  const findTextNode = (root, value) => all(root, "*").find(element => exactText(element, value) && element.children.length === 0);
-
-  const findInput = (root, words) => {
-    let best = null; let score = 0;
-    for (const element of all(root, "input, textarea")) {
-      const label = labelWords(element);
-      const current = words.reduce((n, word) => n + (label.includes(normalize(word)) ? 1 : 0), 0);
-      if (current > score) { best = element; score = current; }
-    }
-    return best;
-  };
-
-  const findSelect = (root, words) => {
-    const controls = all(root, "select, [role='combobox'], [aria-haspopup='listbox'], [aria-expanded], mat-select");
-    let best = null; let score = 0;
-    for (const element of controls) {
-      const label = labelWords(element);
-      const current = words.reduce((n, word) => n + (label.includes(normalize(word)) ? 1 : 0), 0);
-      if (current > score) { best = { trigger: element, box: element }; score = current; }
-    }
-    if (best) return best;
-
-    const label = findTextNode(root, words[0]);
-    if (!label) return null;
-    let parent = label.parentElement;
-    for (let depth = 0; parent && depth < 6; depth++, parent = parent.parentElement) {
-      const trigger = parent.querySelector("select, [role='combobox'], [aria-haspopup='listbox'], [aria-expanded], button") || parent;
-      if (trigger && visible(trigger)) return { trigger, box: parent };
-    }
-    return null;
-  };
-
-  const optionCandidates = () => {
-    const selectors = "[role='option'], [role='menuitem'], mat-option, .mat-option, .mat-mdc-option, .mdc-list-item, li, button, option, [class*='option']";
-    const nodes = all(document, selectors);
+  const openOptions = () => {
+    const nodes = visibleNodes(document, "[role='option'], [role='menuitem'], [role='listbox'] li, [role='listbox'] div, mat-option, .mat-option, .mat-mdc-option, .mdc-list-item, .cdk-overlay-pane li, .cdk-overlay-pane button, .dropdown-menu li, .dropdown-menu button, [class*='option']");
     return nodes.filter(node => {
-      const value = text(node);
-      return value && ![...node.children].some(child => text(child) === value);
+      const value = optionText(node);
+      return value && ![...node.children].some(child => optionText(child) === value);
     });
   };
 
   const clickReal = element => {
-    const rect = element.getBoundingClientRect();
+    const target = element.closest("[role='option'], [role='menuitem'], mat-option, .mat-option, .mat-mdc-option, .mdc-list-item, li, button") || element;
+    target.scrollIntoView?.({ block: "nearest" });
+    const rect = target.getBoundingClientRect();
     const init = { bubbles: true, cancelable: true, composed: true, view: window, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
-    if (typeof PointerEvent === "function") element.dispatchEvent(new PointerEvent("pointerdown", { ...init, pointerId: 1, pointerType: "mouse" }));
-    element.dispatchEvent(new MouseEvent("mousedown", init));
-    if (typeof PointerEvent === "function") element.dispatchEvent(new PointerEvent("pointerup", { ...init, pointerId: 1, pointerType: "mouse" }));
-    element.dispatchEvent(new MouseEvent("mouseup", init));
-    element.dispatchEvent(new MouseEvent("click", init));
-    element.click();
+    if (typeof PointerEvent === "function") target.dispatchEvent(new PointerEvent("pointerdown", { ...init, pointerId: 1, pointerType: "mouse" }));
+    target.dispatchEvent(new MouseEvent("mousedown", init));
+    if (typeof PointerEvent === "function") target.dispatchEvent(new PointerEvent("pointerup", { ...init, pointerId: 1, pointerType: "mouse" }));
+    target.dispatchEvent(new MouseEvent("mouseup", init));
+    target.dispatchEvent(new MouseEvent("click", init));
+    target.click();
   };
 
-  const selectValue = async (field, wanted) => {
-    if (!field || !wanted) return false;
-    const trigger = field.trigger;
+  const rowValue = row => normalize(row?.innerText || row?.textContent || "");
+
+  const selectValue = async (field, value) => {
+    if (!field || !value) return false;
+    const trigger = field.control;
     if (trigger instanceof HTMLSelectElement) {
-      const option = [...trigger.options].find(option => text(option) === normalize(wanted) || normalize(option.value) === normalize(wanted));
+      const option = [...trigger.options].find(item => optionMatches(item, value));
       if (!option) return false;
       trigger.value = option.value;
       ["input", "change", "blur"].forEach(type => trigger.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
       return true;
     }
 
-    const before = text(field.box);
+    const wanted = normalize(value);
     clickReal(trigger);
     await wait(150);
-    let option;
     for (let attempt = 0; attempt < 50; attempt++) {
-      option = optionCandidates().find(candidate => text(candidate) === normalize(wanted));
-      if (option) break;
-      await wait(40);
-    }
-    if (!option) {
-      trigger.focus?.();
-      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", code: "Home", bubbles: true }));
-      for (let i = 0; i < 10; i++) {
-        trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
-        await wait(20);
-        if (optionCandidates().some(candidate => text(candidate) === normalize(wanted))) break;
+      const option = openOptions().find(item => optionMatches(item, value));
+      if (option) {
+        clickReal(option);
+        await wait(300);
+        if (rowValue(field.row).includes(wanted) && !rowValue(field.row).includes("select")) return true;
       }
-      option = optionCandidates().find(candidate => text(candidate) === normalize(wanted));
+      await wait(50);
     }
-    if (!option) {
-      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-      return false;
+
+    trigger.focus?.();
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", code: "Home", bubbles: true }));
+    for (let i = 0; i < 8; i++) {
+      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
+      await wait(30);
+      const option = openOptions().find(item => optionMatches(item, value));
+      if (option) {
+        clickReal(option);
+        await wait(250);
+        if (rowValue(field.row).includes(wanted) && !rowValue(field.row).includes("select")) return true;
+      }
     }
-    clickReal(option.closest("[role='option'], [role='menuitem'], mat-option, .mat-option, .mat-mdc-option, li, button") || option);
-    await wait(300);
-    const after = text(field.box);
-    return after.includes(normalize(wanted)) && after !== before;
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    return false;
   };
 
-  const fill = async passenger => {
-    const root = modal();
-    const name = findInput(root, ["full name", "passenger name", "government id", "govt id", "name"]);
-    const age = findInput(root, ["age"]);
-    const gender = findSelect(root, ["gender", "sex"]);
-    const country = findSelect(root, ["country", "nationality"]);
-    const preference = findSelect(root, ["preferences", "preference", "berth"]);
-    let count = 0;
-    if (inputSetter(name, passenger.name)) count++;
-    if (inputSetter(age, passenger.age)) count++;
-    const genderOk = await selectValue(gender, passenger.gender);
-    if (genderOk) count++;
-    if (country && (country.trigger instanceof HTMLSelectElement ? await selectValue(country, passenger.country) : inputSetter(country.trigger, passenger.country))) count++;
-    const preferenceOk = passenger.preference ? await selectValue(preference, passenger.preference) : true;
-    if (preferenceOk && passenger.preference) count++;
-    return { count, genderOk, preferenceOk };
+  const fillPassenger = async passenger => {
+    const root = getModal();
+    const nameField = controlForLabel(root, ["full name as per govt. id", "full name"]);
+    const ageField = controlForLabel(root, ["age"]);
+    const genderField = controlForLabel(root, ["gender"]);
+    const countryField = controlForLabel(root, ["country"]);
+    const preferenceField = controlForLabel(root, ["preferences", "preference"]);
+
+    let filled = 0;
+    if (nameField?.control && setInput(nameField.control, passenger.name)) filled++;
+    if (ageField?.control && setInput(ageField.control, passenger.age)) filled++;
+    const genderOk = await selectValue(genderField, passenger.gender);
+    if (genderOk) filled++;
+    const countryOk = await selectValue(countryField, passenger.country || "India");
+    if (countryOk) filled++;
+    const preferenceOk = passenger.preference ? await selectValue(preferenceField, passenger.preference) : true;
+    if (preferenceOk && passenger.preference) filled++;
+    return { filled, genderOk, preferenceOk };
   };
 
-  const buttonByText = value => all(document, "button, a, [role='button']").find(element => text(element).includes(normalize(value)));
-  const openPassenger = async () => { const button = buttonByText("new passenger"); if (!button) return false; clickReal(button); await wait(400); return true; };
-  const addPassenger = async () => { const button = all(document, "button, [role='button']").find(element => /^(add|add passenger|save passenger)$/i.test((element.innerText || "").trim())); if (!button) return false; clickReal(button); await wait(500); return true; };
+  const buttons = selector => visibleNodes(document, selector);
+  const byText = (selector, value) => buttons(selector).find(element => ownText(element).includes(normalize(value)));
+  const openPassenger = async () => { const button = byText("button, a, [role='button']", "new passenger"); if (!button) return false; clickReal(button); await wait(400); return true; };
+  const addPassenger = async () => { const button = buttons("button, [role='button']").find(element => /^(add|add passenger|save passenger)$/i.test((element.innerText || element.textContent || "").trim())); if (!button) return false; clickReal(button); await wait(500); return true; };
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!["fillPassengers", "selectExistingPassengers"].includes(message.action)) return;
@@ -162,7 +152,7 @@
         let completed = 0;
         for (const passenger of passengers) {
           if (!await openPassenger()) break;
-          const result = await fill(passenger);
+          const result = await fillPassenger(passenger);
           if (!result.genderOk || !result.preferenceOk) {
             sendResponse({ message: `Passenger ${completed + 1} was not added because Gender or Preference was not selected. Please select both fields manually.` });
             return;
