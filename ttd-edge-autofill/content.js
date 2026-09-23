@@ -8,8 +8,6 @@
     return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
   };
 
-  // TTD uses Angular Material controls for gender and photo-ID proof. They are
-  // not native <select> elements, so include comboboxes/mat-selects as well.
   const fields = root => [...(root || document).querySelectorAll(
     "input, select, textarea, [role='combobox'], [aria-haspopup='listbox'], mat-select"
   )].filter(visible);
@@ -53,26 +51,40 @@
 
   const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
-  // Angular Material renders its overlay asynchronously after mat-select.click().
-  // Do not query the options immediately: on a fast page that races the overlay
-  // and leaves gender/photo-ID unchanged.
-  const visibleOptions = () => [...document.querySelectorAll(
-    "[role='option'], mat-option, .mat-option, [role='listbox'] [class*='option']"
+  const setNativeSelect = (element, value) => {
+    // Use the real select setter and dispatch a bubbling change event. This is
+    // required by Angular forms; assigning selectedIndex alone is not enough.
+    const options = [...(element.options || [])];
+    const option = options.find(item => optionMatches(item, value));
+    if (!option) return false;
+    const selectedIndex = options.indexOf(option);
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "selectedIndex")?.set;
+    if (setter) setter.call(element, selectedIndex);
+    else element.selectedIndex = selectedIndex;
+    ["input", "change", "blur"].forEach(type => element.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
+    return true;
+  };
+
+  const overlayOptions = () => [...document.querySelectorAll(
+    "[role='option'], mat-option, .mat-option, .mat-mdc-option, .mdc-list-item, " +
+    "[role='listbox'] li, [role='listbox'] option, [role='listbox'] [class*='option']"
   )].filter(visible);
 
   const setCustomSelect = async (element, value) => {
     if (!element || value === undefined || value === null || value === "") return false;
 
-    if (element instanceof HTMLSelectElement) {
-      const option = [...element.options].find(item => optionMatches(item, value));
-      return option ? setValue(element, option.value) : false;
+    // TTD currently renders gender as a native select in some page versions.
+    // Do this before clicking: clicking a native select opens the browser menu,
+    // which is not represented by selectable DOM options.
+    if (element instanceof HTMLSelectElement || element.tagName?.toLowerCase() === "select" || element.options) {
+      return setNativeSelect(element, value);
     }
 
+    element.focus?.();
     element.click();
     let option;
-    // The overlay may take several animation frames to be attached to body.
-    for (let attempt = 0; attempt < 12 && !option; attempt++) {
-      option = visibleOptions().find(item => optionMatches(item, value));
+    for (let attempt = 0; attempt < 20 && !option; attempt++) {
+      option = overlayOptions().find(item => optionMatches(item, value));
       if (!option) await wait(50);
     }
     if (!option) {
@@ -80,8 +92,7 @@
       return false;
     }
     option.click();
-    // Allow Angular to propagate the selection before the next pilgrim starts.
-    await wait(30);
+    await wait(100);
     return true;
   };
 
