@@ -35,14 +35,6 @@
   const openOptions = () => [...document.querySelectorAll(optionSelector)].filter(visible).filter(item => textOf(item));
   const clickOption = element => {
     const target = element.closest("[role='option'], [role='menuitem'], mat-option, .mat-option, .mat-mdc-option, .mdc-list-item, li, button") || element;
-    target.scrollIntoView({ block: "nearest" });
-    const rect = target.getBoundingClientRect();
-    const init = { bubbles: true, cancelable: true, composed: true, view: window, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
-    if (typeof PointerEvent === "function") target.dispatchEvent(new PointerEvent("pointerdown", { ...init, pointerId: 1, pointerType: "mouse" }));
-    target.dispatchEvent(new MouseEvent("mousedown", init));
-    if (typeof PointerEvent === "function") target.dispatchEvent(new PointerEvent("pointerup", { ...init, pointerId: 1, pointerType: "mouse" }));
-    target.dispatchEvent(new MouseEvent("mouseup", init));
-    target.dispatchEvent(new MouseEvent("click", init));
     target.click();
   };
   const selectNative = (element, value) => {
@@ -52,36 +44,50 @@
     ["input", "change", "blur"].forEach(type => element.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
     return true;
   };
-  const controlDisplay = element => {
+  const displayText = element => {
     const host = element.closest("mat-form-field, .mat-form-field, .form-group, [class*='select'], [class*='dropdown'], label") || element;
     return normalize(host.innerText || host.textContent || element.getAttribute("aria-label") || "");
+  };
+  const keyboardIndex = (field, value) => {
+    const gender = ["male", "female", "transgender"];
+    const preference = ["lower", "middle", "upper", "sidelower", "sideupper"];
+    const label = labelText(field);
+    const values = label.includes("gender") || label.includes("sex") ? gender : preference;
+    return values.indexOf(normalize(value));
   };
   const selectCustom = async (element, value) => {
     if (!element || !value) return false;
     if (element instanceof HTMLSelectElement || element.tagName?.toLowerCase() === "select") return selectNative(element, value);
     const wanted = normalize(value);
-    element.focus?.(); element.click(); await wait(150);
-    for (let attempt = 0; attempt < 30; attempt++) {
+    element.focus?.();
+    element.click();
+    await wait(120);
+    for (let attempt = 0; attempt < 20; attempt++) {
       const option = openOptions().filter(item => exact(item, value)).sort((a, b) => {
         const area = node => node.getBoundingClientRect().width * node.getBoundingClientRect().height;
         return area(a) - area(b);
       })[0];
       if (option) {
         clickOption(option);
-        await wait(350);
-        const expanded = element.getAttribute("aria-expanded");
-        const display = controlDisplay(element);
-        const stillOpen = openOptions().some(item => exact(item, value));
-        if ((expanded === "false" || !stillOpen) && display.includes(wanted)) return true;
-        // Try the actual element at the option's center for portals whose
-        // handler is attached to a parent overlay row.
-        const rect = option.getBoundingClientRect();
-        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-        if (hit && hit !== option) clickOption(hit);
-        await wait(350);
-        if ((element.getAttribute("aria-expanded") === "false" || !openOptions().some(item => exact(item, value))) && controlDisplay(element).includes(wanted)) return true;
+        await wait(250);
+        if (displayText(element).includes(wanted)) return true;
       }
-      await wait(60);
+      await wait(50);
+    }
+    // IRCTC's current dropdowns respond reliably to keyboard selection even
+    // when their visible option rows ignore synthetic mouse events.
+    element.focus?.();
+    const index = keyboardIndex(element, value);
+    if (index >= 0) {
+      element.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", code: "Home", bubbles: true }));
+      await wait(30);
+      for (let i = 0; i < index; i++) {
+        element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
+        await wait(30);
+      }
+      element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+      await wait(300);
+      if (displayText(element).includes(wanted)) return true;
     }
     element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     return false;
@@ -118,10 +124,7 @@
           if (!await openNewPassenger()) break;
           const result = await fillFields(passenger);
           total += result.filled;
-          if (!result.genderOk || !result.preferenceOk) {
-            sendResponse({ message: `Passenger ${completed + 1} was not added because Gender or Preference was not selected. Please select both fields manually.` });
-            return;
-          }
+          if (!result.genderOk || !result.preferenceOk) { sendResponse({ message: `Passenger ${completed + 1} was not added because Gender or Preference was not selected. Please select both fields manually.` }); return; }
           if (!await confirmPassenger()) break;
           completed++; await wait(250);
         }
