@@ -1,5 +1,13 @@
+const STATIC_GENERAL_DETAILS = {
+  email: "vronlineservices6@gmail.com",
+  city: "Amalapuram",
+  state: "Andhra pradesh",
+  country: "India",
+  pincode: "533201"
+};
+
 const emptyPilgrim = () => ({ name: "", age: "", gender: "Male", idType: "Aadhaar Card", idNumber: "" });
-const emptyGeneralDetails = () => ({ email: "", city: "", state: "", country: "", pincode: "" });
+const emptyGeneralDetails = () => ({ ...STATIC_GENERAL_DETAILS });
 const defaultData = { profiles: [{ id: crypto.randomUUID(), name: "My Profile", generalDetails: emptyGeneralDetails(), pilgrims: [emptyPilgrim()] }], selected: null };
 let data;
 
@@ -8,7 +16,8 @@ const status = message => { document.getElementById("status").textContent = mess
 const escapeHtml = value => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
 
 function migrateProfile(profile) {
-  profile.generalDetails = { ...emptyGeneralDetails(), ...(profile.generalDetails || {}) };
+  // General Details are intentionally static. Edit STATIC_GENERAL_DETAILS above when needed.
+  profile.generalDetails = { ...STATIC_GENERAL_DETAILS };
   profile.pilgrims = Array.isArray(profile.pilgrims) && profile.pilgrims.length ? profile.pilgrims : [emptyPilgrim()];
   return profile;
 }
@@ -59,9 +68,7 @@ function renderEditor() {
 function readEditor() {
   const profile = current();
   profile.name = document.getElementById("profileName").value.trim() || "My Profile";
-  Object.keys(profile.generalDetails).forEach(key => {
-    profile.generalDetails[key] = document.getElementById(key).value.trim();
-  });
+  profile.generalDetails = { ...STATIC_GENERAL_DETAILS };
   document.querySelectorAll("#pilgrims [data-key]").forEach(element => {
     profile.pilgrims[Number(element.dataset.index)][element.dataset.key] = element.value;
   });
