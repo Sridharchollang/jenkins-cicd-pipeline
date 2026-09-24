@@ -15,6 +15,21 @@
   <button id="newBtn">New Profile</button>
   <div id="status" class="status">Ready</div>
   <details open>
+    <summary>General Details</summary>
+    <div class="general-details">
+      <label for="email">Email ID <span class="required">*</span></label>
+      <input id="email" type="email" autocomplete="email" placeholder="Enter email ID">
+      <label for="city">City <span class="required">*</span></label>
+      <input id="city" autocomplete="address-level2" placeholder="Enter City">
+      <label for="state">State <span class="required">*</span></label>
+      <input id="state" autocomplete="address-level1" placeholder="State">
+      <label for="country">Country <span class="required">*</span></label>
+      <input id="country" autocomplete="country-name" placeholder="Country">
+      <label for="pincode">Pincode <span class="required">*</span></label>
+      <input id="pincode" inputmode="numeric" autocomplete="postal-code" placeholder="Enter pincode">
+    </div>
+  </details>
+  <details open>
     <summary>Profile details</summary>
     <label for="profileName">Profile name</label>
     <input id="profileName" placeholder="Family 1">

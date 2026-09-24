@@ -1,14 +1,22 @@
 const emptyPilgrim = () => ({ name: "", age: "", gender: "Male", idType: "Aadhaar Card", idNumber: "" });
-const defaultData = { profiles: [{ id: crypto.randomUUID(), name: "My Profile", pilgrims: [emptyPilgrim()] }], selected: null };
+const emptyGeneralDetails = () => ({ email: "", city: "", state: "", country: "", pincode: "" });
+const defaultData = { profiles: [{ id: crypto.randomUUID(), name: "My Profile", generalDetails: emptyGeneralDetails(), pilgrims: [emptyPilgrim()] }], selected: null };
 let data;
 
 const current = () => data.profiles.find(profile => profile.id === data.selected) || data.profiles[0];
 const status = message => { document.getElementById("status").textContent = message; };
 const escapeHtml = value => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
 
+function migrateProfile(profile) {
+  profile.generalDetails = { ...emptyGeneralDetails(), ...(profile.generalDetails || {}) };
+  profile.pilgrims = Array.isArray(profile.pilgrims) && profile.pilgrims.length ? profile.pilgrims : [emptyPilgrim()];
+  return profile;
+}
+
 async function load() {
   data = await chrome.storage.local.get(defaultData);
   if (!data.profiles?.length) data.profiles = defaultData.profiles;
+  data.profiles.forEach(migrateProfile);
   if (!data.selected || !data.profiles.some(profile => profile.id === data.selected)) data.selected = data.profiles[0].id;
   renderProfiles();
   renderEditor();
@@ -25,7 +33,12 @@ function renderProfiles() {
 
 function renderEditor() {
   const profile = current();
+  migrateProfile(profile);
   document.getElementById("profileName").value = profile.name;
+  Object.entries(profile.generalDetails).forEach(([key, value]) => {
+    const input = document.getElementById(key);
+    if (input) input.value = value;
+  });
   const root = document.getElementById("pilgrims");
   root.replaceChildren();
   profile.pilgrims.forEach((pilgrim, index) => {
@@ -46,6 +59,9 @@ function renderEditor() {
 function readEditor() {
   const profile = current();
   profile.name = document.getElementById("profileName").value.trim() || "My Profile";
+  Object.keys(profile.generalDetails).forEach(key => {
+    profile.generalDetails[key] = document.getElementById(key).value.trim();
+  });
   document.querySelectorAll("#pilgrims [data-key]").forEach(element => {
     profile.pilgrims[Number(element.dataset.index)][element.dataset.key] = element.value;
   });
@@ -66,7 +82,7 @@ document.getElementById("profileSelect").addEventListener("change", async event 
 document.getElementById("saveBtn").addEventListener("click", async () => { await save(); status("Profile saved locally."); });
 document.getElementById("newBtn").addEventListener("click", async () => {
   readEditor();
-  const profile = { id: crypto.randomUUID(), name: `Profile ${data.profiles.length + 1}`, pilgrims: [emptyPilgrim()] };
+  const profile = { id: crypto.randomUUID(), name: `Profile ${data.profiles.length + 1}`, generalDetails: emptyGeneralDetails(), pilgrims: [emptyPilgrim()] };
   data.profiles.push(profile); data.selected = profile.id;
   await chrome.storage.local.set({ profiles: data.profiles, selected: data.selected });
   renderProfiles(); renderEditor(); status("New profile created.");
