@@ -16,8 +16,8 @@ const status = message => { document.getElementById("status").textContent = mess
 const escapeHtml = value => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
 
 function migrateProfile(profile) {
-  // General Details are intentionally static. Edit STATIC_GENERAL_DETAILS above when needed.
-  profile.generalDetails = { ...STATIC_GENERAL_DETAILS };
+  // Use the static values only as defaults. Existing profile-specific values are preserved.
+  profile.generalDetails = { ...STATIC_GENERAL_DETAILS, ...(profile.generalDetails || {}) };
   profile.pilgrims = Array.isArray(profile.pilgrims) && profile.pilgrims.length ? profile.pilgrims : [emptyPilgrim()];
   return profile;
 }
@@ -68,7 +68,13 @@ function renderEditor() {
 function readEditor() {
   const profile = current();
   profile.name = document.getElementById("profileName").value.trim() || "My Profile";
-  profile.generalDetails = { ...STATIC_GENERAL_DETAILS };
+  profile.generalDetails = {
+    email: document.getElementById("email").value.trim(),
+    city: document.getElementById("city").value.trim(),
+    state: document.getElementById("state").value.trim(),
+    country: document.getElementById("country").value.trim(),
+    pincode: document.getElementById("pincode").value.trim()
+  };
   document.querySelectorAll("#pilgrims [data-key]").forEach(element => {
     profile.pilgrims[Number(element.dataset.index)][element.dataset.key] = element.value;
   });
